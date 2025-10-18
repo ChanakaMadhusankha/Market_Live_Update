@@ -1,0 +1,232 @@
+<!doctype html>
+
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>BNB Arbitrage Live Tracker</title>
+  <style>
+    :root{--bg:#0f1724;--card:#0b1220;--muted:#94a3b8;--accent:#10b981}
+    body{font-family:Inter,system-ui,Segoe UI,Roboto,'Helvetica Neue',Arial;background:linear-gradient(180deg,#071029 0%, #071f2e 100%);color:#e6eef6;margin:0;padding:28px;}
+    .wrap{max-width:920px;margin:0 auto}
+    header{display:flex;align-items:center;gap:14px;margin-bottom:18px}
+    h1{font-size:20px;margin:0}
+    .card{background:rgba(255,255,255,0.03);border-radius:12px;padding:16px;margin-bottom:12px;box-shadow:0 6px 18px rgba(2,6,23,0.6)}
+    .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+    .big{grid-column:span 3}
+    .row{display:flex;justify-content:space-between;align-items:center}
+    .muted{color:var(--muted);font-size:13px}
+    .price{font-weight:700;font-size:20px}
+    input,select,button{background:transparent;border:1px solid rgba(255,255,255,0.06);padding:8px 10px;border-radius:8px;color:inherit}
+    .green{color:#86efac}
+    .red{color:#ffb4b4}
+    footer{margin-top:8px;color:var(--muted);font-size:13px}
+    .small{font-size:13px;color:var(--muted)}
+    label{font-size:13px;color:var(--muted);display:block;margin-bottom:6px}
+    .controls{display:flex;gap:8px;flex-wrap:wrap}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <div>
+        <h1>BNB Arbitrage Live Tracker</h1>
+        <div class="muted">Binance ↔ Huobi (live prices). Uses public exchange APIs. If browser CORS blocks requests, use a CORS proxy (input below).</div>
+      </div>
+    </header><div class="card">
+  <div class="grid">
+    <div>
+      <div class="muted">Binance Price (BNBUSDT)</div>
+      <div id="binancePrice" class="price">—</div>
+      <div id="binanceTime" class="small muted">updated: —</div>
+    </div>
+
+    <div>
+      <div class="muted">Huobi Price (bnbusdt)</div>
+      <div id="huobiPrice" class="price">—</div>
+      <div id="huobiTime" class="small muted">updated: —</div>
+    </div>
+
+    <div>
+      <div class="muted">Difference</div>
+      <div id="diff" class="price">—</div>
+      <div id="diffPct" class="small muted">—</div>
+    </div>
+
+    <div class="big card" style="padding:12px;display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap">
+      <div style="min-width:220px">
+        <label>Trade Quantity (BNB)</label>
+        <input id="qty" type="number" value="1" step="0.0001" min="0.0001" />
+        <div class="small muted">Enter how many BNB you plan to trade.</div>
+      </div>
+
+      <div style="min-width:220px">
+        <label>Estimated Profit (USDT)</label>
+        <div id="profit" class="price">—</div>
+        <div id="profitBreakdown" class="small muted">—</div>
+      </div>
+
+      <div style="min-width:220px">
+        <label>Auto-refresh interval (seconds)</label>
+        <input id="interval" type="number" value="10" min="2" step="1" />
+        <div class="small muted">Set to 0 to disable auto-refresh.</div>
+      </div>
+
+    </div>
+
+    <div class="big" style="display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap">
+      <div style="flex:1;min-width:260px">
+        <label>Optional CORS proxy (if direct fetch is blocked)</label>
+        <input id="corsProxy" type="text" placeholder="e.g. https://cors.bridged.cc/" style="width:100%" />
+        <div class="small muted">If you get CORS errors, paste a proxy URL here or run a simple local proxy.</div>
+      </div>
+
+      <div style="min-width:200px">
+        <label>Manual controls</label>
+        <div class="controls">
+          <button id="refreshBtn">Refresh Now</button>
+          <button id="startBtn">Start Auto</button>
+          <button id="stopBtn">Stop Auto</button>
+        </div>
+      </div>
+
+    </div>
+
+  </div>
+</div>
+
+<div class="card">
+  <div class="row">
+    <div>
+      <div class="muted">Logs</div>
+    </div>
+    <div class="small muted">Tip: watch for price convergence before attempting any transfer.</div>
+  </div>
+  <pre id="log" style="max-height:220px;overflow:auto;margin-top:8px;background:transparent;border:none;color:var(--muted)"></pre>
+</div>
+
+<footer>Open this file in your browser. If you see CORS blocked errors in logs, either set a CORS proxy above or run a very small local proxy (instructions in the file comments).</footer>
+
+  </div>  <script>
+    // Simple live tracker. Uses Binance and Huobi public endpoints.
+    // API endpoints used:
+    // Binance: https://api.binance.com/api/v3/ticker/price?symbol=BNBUSDT
+    // Huobi:   https://api.huobi.pro/market/detail/merged?symbol=bnbusdt
+    // NOTE: Some browsers block cross-origin requests to these endpoints (CORS). If blocked,
+    // either use a CORS proxy (paste URL into the field above) or run a tiny local proxy.
+
+    const els = {
+      binancePrice: document.getElementById('binancePrice'),
+      huobiPrice: document.getElementById('huobiPrice'),
+      binanceTime: document.getElementById('binanceTime'),
+      huobiTime: document.getElementById('huobiTime'),
+      diff: document.getElementById('diff'),
+      diffPct: document.getElementById('diffPct'),
+      qty: document.getElementById('qty'),
+      profit: document.getElementById('profit'),
+      profitBreakdown: document.getElementById('profitBreakdown'),
+      interval: document.getElementById('interval'),
+      refreshBtn: document.getElementById('refreshBtn'),
+      startBtn: document.getElementById('startBtn'),
+      stopBtn: document.getElementById('stopBtn'),
+      log: document.getElementById('log'),
+      corsProxy: document.getElementById('corsProxy')
+    };
+
+    let timer = null;
+
+    function log(msg) {
+      const t = new Date().toLocaleString();
+      els.log.textContent = `[${t}] ${msg}\n` + els.log.textContent;
+    }
+
+    async function fetchWithProxy(url) {
+      const proxy = els.corsProxy.value.trim();
+      const finalUrl = proxy ? proxy + url : url;
+      const resp = await fetch(finalUrl, {cache: 'no-cache'});
+      if (!resp.ok) throw new Error(`HTTP ${resp.status} for ${finalUrl}`);
+      return resp.json();
+    }
+
+    async function fetchBinance() {
+      const url = 'https://api.binance.com/api/v3/ticker/price?symbol=BNBUSDT';
+      const data = await fetchWithProxy(url);
+      // { symbol: 'BNBUSDT', price: '1108.00000000' }
+      return {price: parseFloat(data.price), raw: data};
+    }
+
+    async function fetchHuobi() {
+      const url = 'https://api.huobi.pro/market/detail/merged?symbol=bnbusdt';
+      const data = await fetchWithProxy(url);
+      // returns { status: 'ok', tick: { close: 1195.0, ... } }
+      if (data && data.tick && typeof data.tick.close !== 'undefined') {
+        return {price: parseFloat(data.tick.close), raw: data};
+      }
+      // fallback: try market/trade
+      const url2 = 'https://api.huobi.pro/market/trade?symbol=bnbusdt';
+      const data2 = await fetchWithProxy(url2);
+      if (data2 && data2.tick && data2.tick.length) {
+        return {price: parseFloat(data2.tick[0].price), raw: data2};
+      }
+      throw new Error('Unexpected Huobi response');
+    }
+
+    function updateUI(bin, huobi) {
+      const qty = Math.max(0.0001, parseFloat(els.qty.value) || 1);
+      const diff = huobi.price - bin.price;
+      const pct = (diff / bin.price) * 100;
+      const profit = diff * qty;
+
+      els.binancePrice.textContent = bin.price.toFixed(6) + ' USDT';
+      els.huobiPrice.textContent = huobi.price.toFixed(6) + ' USDT';
+      els.binanceTime.textContent = 'updated: ' + new Date().toLocaleTimeString();
+      els.huobiTime.textContent = 'updated: ' + new Date().toLocaleTimeString();
+
+      els.diff.textContent = (diff >= 0 ? '+' : '') + diff.toFixed(6) + ' USDT';
+      els.diffPct.textContent = (pct >= 0 ? '+' : '') + pct.toFixed(4) + ' %';
+
+      els.profit.textContent = (profit >= 0 ? '+' : '') + profit.toFixed(6) + ' USDT';
+      els.profitBreakdown.textContent = `${qty} BNB × (${huobi.price.toFixed(6)} − ${bin.price.toFixed(6)})`;
+
+      // color
+      els.diff.className = 'price ' + (diff > 0 ? 'green' : (diff < 0 ? 'red' : ''));
+      els.profit.className = 'price ' + (profit > 0 ? 'green' : (profit < 0 ? 'red' : ''));
+    }
+
+    async function refresh() {
+      try {
+        const [bin, huobi] = await Promise.all([fetchBinance(), fetchHuobi()]);
+        updateUI(bin, huobi);
+        log(`Fetched Binance ${bin.price} — Huobi ${huobi.price} — diff ${ (huobi.price - bin.price).toFixed(6) }`);
+      } catch (err) {
+        console.error(err);
+        log('Error: ' + (err.message || err));
+      }
+    }
+
+    els.refreshBtn.addEventListener('click', refresh);
+    els.startBtn.addEventListener('click', () => {
+      const s = Math.max(1, parseInt(els.interval.value || 10, 10));
+      if (timer) clearInterval(timer);
+      timer = setInterval(refresh, s * 1000);
+      log('Auto-refresh started: ' + s + 's');
+    });
+    els.stopBtn.addEventListener('click', () => {
+      if (timer) { clearInterval(timer); timer = null; log('Auto-refresh stopped'); }
+    });
+
+    // auto-start
+    (function init() {
+      refresh();
+      const s = parseInt(els.interval.value || 10, 10);
+      if (s > 0) timer = setInterval(refresh, s * 1000);
+    })();
+
+    // Helpful note
+    // If you need to run a local CORS proxy quickly, here's a tiny node example (run locally):
+    // const express = require('express'); const fetch = require('node-fetch'); const app = express();
+    // app.get('/proxy', async (req,res)=>{ const url = req.query.url; const r = await fetch(url); const txt = await r.text(); res.set('Content-Type', r.headers.get('content-type') || 'text/plain'); res.send(txt); });
+    // Then use: http://localhost:3000/proxy?url=<encodeURIComponent(apiUrl)>
+
+  </script></body>
+</html>
